@@ -20,3 +20,4 @@ Welcome to my Github profile :) I'm a software engineer passionate by blockchain
 - 👯 My hobbies ... Video games 🎮, Piano 🎹, Motorcycle 🏍️
 
 - 💬 Don't hesitate to reach me
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/linkedin/linkedin-original.svg" />(https://www.linkedin.com/in/nicolas-duchemann-91087510b/)
