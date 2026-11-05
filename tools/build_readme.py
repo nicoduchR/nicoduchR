@@ -113,22 +113,16 @@ CONTACT_TITLE = "Parlons de votre besoin"
 CONTACT_SUB = f"Premier retour structuré sous 48{NB}h."
 
 # ---------------------------------------------------------------- tokens MERZA V2
-THEMES = {
-    "dark": dict(
-        panel="#121419", subtle="#2A2F38", strong="#3D4350",
-        text="#E7EAEF", text2="#AAB0BB", text3="#8A919E",
-        gold="#E7B44C", on_gold="#0A0B0D",
-        ok="#46C98B", ok_bg="#182A27", ok_line="#265944",
-        highlight=True, logo="merza-wordmark-sur-sombre.svg",
-    ),
-    "light": dict(
-        panel="#FBFBFC", subtle="#E0E3E8", strong="#C9CDD4",
-        text="#121419", text2="#454B56", text3="#5E6572",
-        gold="#E7B44C", on_gold="#0A0B0D",
-        ok="#13703C", ok_bg="#E6EEEB", ok_line="#B1CFBF",
-        highlight=False, logo="merza-wordmark-sur-clair.svg",
-    ),
-}
+# Une seule variante, sombre et opaque : elle reste lisible quel que soit le thème de la page.
+# Un README ne peut pas suivre le thème GitHub de façon fiable : prefers-color-scheme suit le
+# système, et GitHub ne tient plus compte des suffixes #gh-dark-mode-only (testé en novembre 2026).
+THEME = dict(
+    canvas="#0A0B0D", panel="#121419", subtle="#2A2F38", strong="#3D4350",
+    text="#E7EAEF", text2="#AAB0BB", text3="#8A919E",
+    gold="#E7B44C", on_gold="#0A0B0D",
+    ok="#46C98B", ok_bg="#182A27", ok_line="#265944",
+)
+LOGO = "merza-wordmark-sur-sombre.svg"
 
 ICONS = {
     "ok": '<circle cx="12" cy="12" r="8.5"/><path d="m8.3 12.3 2.6 2.6 4.9-5.4"/>',
@@ -157,6 +151,7 @@ class Style:
 
 DISPLAY_XL = Style("display600", 64, 60, -0.02)
 DISPLAY_M = Style("display600", 34, 38, -0.015)
+DISPLAY_S = Style("display600", 30, 34, -0.015)  # mobile : « Applications métier » tient sur une ligne
 TITLE_M = Style("sans600", 22, 28, -0.01)
 HEADING = Style("sans600", 15, 20, -0.005)
 BODY_L = Style("sans400", 16, 24)
@@ -239,11 +234,12 @@ class Type:
 
 
 class Svg:
-    def __init__(self, ty: Type, w: float, t: dict, ds: Path):
+    def __init__(self, ty: Type, w: float, t: dict, ds: Path, defs: dict | None = None):
         self.ty, self.w, self.t, self.ds = ty, w, t, ds
         self.h = 0.0
         self.parts: list[str] = []
-        self.defs: dict[tuple[str, str], tuple[str, str]] = {}  # chaque glyphe n'est tracé qu'une fois
+        # Chaque glyphe n'est tracé qu'une fois, y compris entre les sections d'une même image.
+        self.defs: dict[tuple[str, str], tuple[str, str]] = {} if defs is None else defs
 
     def _glyph(self, font: str, name: str) -> str | None:
         key = (font, name)
@@ -302,11 +298,11 @@ class Svg:
 
     def panel(self, x, y, w, h, r):
         self.box(x, y, w, h, r, self.t["panel"], self.t["subtle"])
-        if self.t["highlight"]:  # shadow-raised du thème sombre : arête claire de 1 px
-            self.parts.append(
-                f'<rect x="{num(x + r)}" y="{num(y + 1)}" width="{num(w - 2 * r)}" height="1" '
-                'fill="#fff" fill-opacity=".04"/>'
-            )
+        # shadow-raised du thème sombre : arête claire de 1 px
+        self.parts.append(
+            f'<rect x="{num(x + r)}" y="{num(y + 1)}" width="{num(w - 2 * r)}" height="1" '
+            'fill="#fff" fill-opacity=".04"/>'
+        )
 
     def icon(self, name, x, y, size, color, stroke=1.5):
         k = size / 24
@@ -316,20 +312,31 @@ class Svg:
         )
 
     def logo(self, x, y, h):
-        src = (self.ds / "assets" / "logos" / self.t["logo"]).read_text(encoding="utf-8")
+        src = (self.ds / "assets" / "logos" / LOGO).read_text(encoding="utf-8")
         inner = re.sub(r"<title>.*?</title>", "", re.search(r"<svg[^>]*>(.*)</svg>", src, re.S).group(1), flags=re.S)
         w = h * 3917.1 / 670
         self.parts.append(
             f'<svg x="{num(x)}" y="{num(y)}" width="{num(w)}" height="{num(h)}" viewBox="0 0 3917.1 670">{inner}</svg>'
         )
 
-    def render(self, title: str) -> str:
-        w, h = num(self.w), num(self.h)
+    def render(self, title: str, sheet: "Device | None" = None) -> str:
+        """Assemble le SVG. Avec `sheet`, le contenu est posé sur un fond opaque et arrondi."""
+        body = "".join(self.parts)
+        width, height = self.w, self.h
+        if sheet:
+            width, height = sheet.total, self.h + 2 * sheet.pad_y
+            backdrop = Svg(self.ty, width, self.t, self.ds)
+            backdrop.box(0, 0, width, height, sheet.sheet_radius, self.t["canvas"], self.t["subtle"])
+            body = (
+                "".join(backdrop.parts)
+                + f'<g transform="translate({sheet.pad} {sheet.pad_y})">{body}</g>'
+            )
+        w, h = num(width), num(height)
         defs = "".join(f'<path id="{gid}" d="{d}"/>' for gid, d in self.defs.values() if d)
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
             f'role="img" aria-label="{html.escape(title)}"><title>{html.escape(title)}</title>'
-            f"<defs>{defs}</defs>" + "".join(self.parts) + "</svg>\n"
+            f"<defs>{defs}</defs>{body}</svg>\n"
         )
 
 
@@ -337,14 +344,21 @@ class Svg:
 @dataclass(frozen=True)
 class Device:
     name: str
-    w: int
-    gap: int      # espace entre sections, marge du paragraphe GitHub (16 px) déduite
-    radius: int   # rayon des panneaux
+    w: int              # largeur du contenu
+    gap: int            # espace entre sections
+    radius: int         # rayon des panneaux
     mobile: bool
+    pad: int            # marges horizontales du fond
+    pad_y: int          # marges verticales du fond
+    sheet_radius: int   # rayon du fond
+
+    @property
+    def total(self) -> int:
+        return self.w + 2 * self.pad
 
 
-DESKTOP = Device("desktop", 784, 40, 6, False)
-MOBILE = Device("mobile", 324, 24, 14, True)  # largeur de la colonne GitHub sur un écran de 390 px
+DESKTOP = Device("desktop", 784, 56, 6, False, 32, 40, 10)  # 848 px, la colonne GitHub du profil en fait 846
+MOBILE = Device("mobile", 292, 40, 10, True, 16, 24, 14)    # 324 px, la colonne GitHub sur un écran de 390 px
 
 
 def hero(s: Svg, d: Device):
@@ -363,18 +377,18 @@ def hero(s: Svg, d: Device):
     role_st = NATIVE_BODY if d.mobile else BODY_L
     y += s.para(ROLE, 0, y, role_st, t["text2"], d.w)
     y += 16 if d.mobile else 20
-    h1 = DISPLAY_M if d.mobile else DISPLAY_XL
+    h1 = DISPLAY_S if d.mobile else DISPLAY_XL
     for line in TITLE_LINES:
         s.text(line, 0, y, h1, t["text"])
         y += h1.lh
     y += 16 if d.mobile else 20
     y += s.para(LEAD, 0, y, BODY_L, t["text2"], d.w if d.mobile else 640)
-    s.h = y + (8 if d.mobile else 16)
+    s.h = y
 
 
 def metrics(s: Svg, d: Device):
     t = s.t
-    top = 24 if d.mobile else 36  # marge sous la rangée de boutons
+    top = 0
     n = len(METRICS)
     cw = d.w if d.mobile else d.w / n
     tw = cw - 2 - 32 if d.mobile else cw - 32
@@ -403,7 +417,7 @@ def metrics(s: Svg, d: Device):
         s.para(desc, x, vy + METRIC_V.lh + 6, CAPTION, t["text3"], tw)
         if d.mobile:
             y += heights[i]
-    s.h = top + total + d.gap
+    s.h = top + total
 
 
 def heading(s: Svg, d: Device, title: str) -> float:
@@ -435,7 +449,7 @@ def work(s: Svg, d: Device):
             s.para(desc, ix, iy + HEADING.lh + 2 + CAPTION.lh + 12, desc_st, t["text2"], inner)
             s.text(tech, ix, y + h - 17 - DATA_S.lh, DATA_S, t["text3"])
         y += h + gap
-    s.h = y - gap + d.gap
+    s.h = y - gap
 
 
 def stack(s: Svg, d: Device):
@@ -462,7 +476,7 @@ def stack(s: Svg, d: Device):
                 s.hline(1, d.w - 1, ry - 0.5, t["subtle"])
             s.text(k, 1 + 12, ry + (40 - LABEL.lh) / 2, LABEL, t["text3"])
             s.text(v, 1 + 152 + 12, ry + (40 - DATA_M.lh) / 2, DATA_M, t["text"])
-    s.h = y + total + d.gap
+    s.h = y + total
 
 
 def career(s: Svg, d: Device):
@@ -497,23 +511,30 @@ def career(s: Svg, d: Device):
             s.text(company, col[2] + 12, ry + (40 - BODY_S.lh) / 2, BODY_S, t["text"])
     y += total + 12
     y += s.para(EDUCATION, 0, y, CAPTION, t["text3"], d.w)
-    s.h = y + d.gap
+    s.h = y
+
+
+def body(s: Svg, d: Device):
+    """Résultats, réalisations, stack et parcours sur un seul fond, sans coupure entre sections."""
+    y = 0.0
+    for i, section in enumerate((metrics, work, stack, career)):
+        part = Svg(s.ty, d.w, s.t, s.ds, s.defs)
+        section(part, d)
+        y += d.gap if i else 0
+        s.parts.append(f'<g transform="translate(0 {num(y)})">{"".join(part.parts)}</g>')
+        y += part.h
+    s.h = y
 
 
 def contact(s: Svg, d: Device):
     t = s.t
-    s.hline(0, d.w, 0, t["strong"])
-    y = 1 + (32 if d.mobile else 48)
-    y += s.para(CONTACT_TITLE, 0, y, DISPLAY_M, t["text"], d.w)
+    y = s.para(CONTACT_TITLE, 0, 0, DISPLAY_S if d.mobile else DISPLAY_M, t["text"], d.w)
     y += 8
     y += s.para(CONTACT_SUB, 0, y, BODY_L, t["text2"], d.w)
-    s.h = y + (4 if d.mobile else 8)
+    s.h = y
 
 
-SECTIONS = {
-    "hero": hero, "metrics": metrics, "work": work,
-    "stack": stack, "career": career, "contact": contact,
-}
+SECTIONS = {"hero": hero, "body": body, "contact": contact}
 
 BUTTONS = {
     "btn-call": ("Réserver un appel", None, True),
@@ -533,17 +554,17 @@ def button(s: Svg, d: Device, label: str, icon: str | None, primary: bool):
     fg = t["on_gold"] if primary else t["text"]
     # Le canevas fait 48 px de haut : c'est la zone cliquable, à la taille tactile du système.
     if d.mobile:
-        bw, by, bh, r = d.w, 0, 48, 10
+        bw, by, bh, r = d.total, 0, 48, 10
     else:
         bw, by, bh, r = content + 2 + 32, 4, 40, 4
-    s.w = d.w if d.mobile else bw + 4  # 4 px + l'espace HTML donnent l'écart de 8 px entre boutons
+    s.w = d.total if d.mobile else bw + 4  # 4 px + l'espace HTML donnent l'écart de 8 px entre boutons
     s.h = 48
     if primary:
         s.parts.append(
             f'<rect x="0" y="{by}" width="{num(bw)}" height="{bh}" rx="{r}" fill="{t["gold"]}"/>'
         )
-    else:
-        s.box(0, by, bw, bh, r, None, t["strong"])
+    else:  # fond opaque : le libellé reste lisible sur une page claire comme sombre
+        s.box(0, by, bw, bh, r, t["canvas"], t["strong"])
     x = (bw - content) / 2
     if icon:
         s.icon(icon, x, by + (bh - 16) / 2, 16, fg)
@@ -556,10 +577,12 @@ def alt_text() -> dict[str, str]:
     status = f"Disponible {AVAILABLE}. " if AVAILABLE else ""
     return {
         "hero": f"MERZA. {status}{NAME}, {ROLE}. {' '.join(TITLE_LINES)}. {LEAD}",
-        "metrics": " ".join(f"{k} : {v}{' ' + u if u else ''} {x}." for k, v, u, x in METRICS),
-        "work": f"{WORK_TITLE}. " + " ".join(f"{a}, {b}. {c} {e}." for a, b, c, e in WORK),
-        "stack": f"{STACK_TITLE}. " + " ".join(f"{k} : {v}." for k, v in STACK),
-        "career": f"{CAREER_TITLE}. " + " ".join(f"{a} : {b}, {c}." for a, b, c in CAREER) + f" {EDUCATION}",
+        "body": " ".join((
+            " ".join(f"{k} : {v}{' ' + u if u else ''} {x}." for k, v, u, x in METRICS),
+            f"{WORK_TITLE}.", " ".join(f"{a}, {b}. {c} {e}." for a, b, c, e in WORK),
+            f"{STACK_TITLE}.", " ".join(f"{k} : {v}." for k, v in STACK),
+            f"{CAREER_TITLE}.", " ".join(f"{a} : {b}, {c}." for a, b, c in CAREER), EDUCATION,
+        )),
         "contact": f"{CONTACT_TITLE}. {CONTACT_SUB}",
     }
 
@@ -567,10 +590,8 @@ def alt_text() -> dict[str, str]:
 def picture(name: str, alt: str, size_attr: str) -> str:
     return (
         "<picture>"
-        f'<source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="assets/mobile/dark/{name}.svg">'
-        f'<source media="(max-width: 600px) and (prefers-color-scheme: light)" srcset="assets/mobile/light/{name}.svg">'
-        f'<source media="(prefers-color-scheme: dark)" srcset="assets/desktop/dark/{name}.svg">'
-        f'<img src="assets/desktop/light/{name}.svg" alt="{html.escape(alt)}" {size_attr}>'
+        f'<source media="(max-width: 600px)" srcset="assets/mobile/{name}.svg">'
+        f'<img src="assets/desktop/{name}.svg" alt="{html.escape(alt)}" {size_attr}>'
         "</picture>"
     )
 
@@ -594,10 +615,7 @@ def readme() -> str:
     blocks = [
         section("hero", URL_SITE),
         buttons(("btn-call", URL_CALL), ("btn-work", URL_WORK)),
-        section("metrics", URL_WORK),
-        section("work", URL_WORK),
-        section("stack", URL_SITE),
-        section("career", URL_LINKEDIN),
+        section("body", URL_WORK),
         section("contact", URL_CALL),
         buttons(("btn-mail", URL_MAIL), ("btn-site", URL_SITE), ("btn-linkedin", URL_LINKEDIN)),
     ]
@@ -616,17 +634,16 @@ def main() -> None:
         shutil.rmtree(out)
     alts = alt_text()
     for d in (DESKTOP, MOBILE):
-        for theme, t in THEMES.items():
-            folder = out / d.name / theme
-            folder.mkdir(parents=True)
-            for name, fn in SECTIONS.items():
-                s = Svg(ty, d.w, t, ds)
-                fn(s, d)
-                (folder / f"{name}.svg").write_text(s.render(alts[name]), encoding="utf-8", newline="\n")
-            for name, (label, icon, primary) in BUTTONS.items():
-                s = Svg(ty, d.w, t, ds)
-                button(s, d, label, icon, primary)
-                (folder / f"{name}.svg").write_text(s.render(label), encoding="utf-8", newline="\n")
+        folder = out / d.name
+        folder.mkdir(parents=True)
+        for name, fn in SECTIONS.items():
+            s = Svg(ty, d.w, THEME, ds)
+            fn(s, d)
+            (folder / f"{name}.svg").write_text(s.render(alts[name], d), encoding="utf-8", newline="\n")
+        for name, (label, icon, primary) in BUTTONS.items():
+            s = Svg(ty, d.w, THEME, ds)
+            button(s, d, label, icon, primary)
+            (folder / f"{name}.svg").write_text(s.render(label), encoding="utf-8", newline="\n")
     (repo / "README.md").write_text(readme(), encoding="utf-8", newline="\n")
     print("README.md et", sum(1 for _ in out.rglob("*.svg")), "SVG générés.")
 
